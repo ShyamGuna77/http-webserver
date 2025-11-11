@@ -9,7 +9,8 @@ function newConn(socket: net.Socket): void {
 
   socket.on("data", (data: Buffer) => {
     console.log("data:", data.toString());
-    socket.write(data); 
+    socket.write(Buffer.from("echo: "));
+    socket.write(data);
 
     if (data.includes("q")) {
       console.log("closing.");
@@ -18,7 +19,9 @@ function newConn(socket: net.Socket): void {
   });
 }
 
-const server = net.createServer();
+const server = net.createServer({
+  allowHalfOpen: true,
+});
 
 server.on("error", (err: Error) => {
   console.error("Server error:", err);
