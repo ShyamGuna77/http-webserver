@@ -10,6 +10,11 @@ type TCPprops = {
   };
 };
 
+type DynamicBuffer = {
+  data: Buffer;
+  length:number
+}
+
 function InitializeConnection(socket: net.Socket): TCPprops {
   const connection: TCPprops = {
     socket,
@@ -62,6 +67,19 @@ function WriteConnection(connection: TCPprops, data: Buffer): Promise<void> {
       err ? reject(err) : resolve()
     );
   });
+}
+
+function GrowBuffer(buf:DynamicBuffer,data:Buffer) :void {
+  const newLenght = buf.length + data.length;
+  if (buf.data.length < newLenght) {
+    let capacity = Math.max(newLenght, 32)
+    while (capacity < newLenght) capacity *= 2 
+    const newBuf = Buffer.alloc(capacity)
+    buf.data.copy(newBuf, 0, 0, buf.length)
+    buf.data = newBuf
+  }
+  data.copy(buf.data, buf.length, 0, data.length)
+  buf.length = newLenght
 }
 
 async function newConn(socket: net.Socket): Promise<void> {
