@@ -12,8 +12,8 @@ type TCPprops = {
 
 type DynamicBuffer = {
   data: Buffer;
-  length:number
-}
+  length: number;
+};
 
 function InitializeConnection(socket: net.Socket): TCPprops {
   const connection: TCPprops = {
@@ -69,32 +69,69 @@ function WriteConnection(connection: TCPprops, data: Buffer): Promise<void> {
   });
 }
 
-function GrowBuffer(buf:DynamicBuffer,data:Buffer) :void {
+function GrowBuffer(buf: DynamicBuffer, data: Buffer): void {
   const newLenght = buf.length + data.length;
   if (buf.data.length < newLenght) {
-    let capacity = Math.max(newLenght, 32)
-    while (capacity < newLenght) capacity *= 2 
-    const newBuf = Buffer.alloc(capacity)
-    buf.data.copy(newBuf, 0, 0, buf.length)
-    buf.data = newBuf
+    let capacity = Math.max(buf.data.length, 32);
+    //same trick used in dynamic arrays like C++’s std::vector.
+    while (capacity < newLenght) capacity *= 2;
+    const newBuf = Buffer.alloc(capacity);
+    buf.data.copy(newBuf, 0, 0, buf.length);
+    buf.data = newBuf;
   }
-  data.copy(buf.data, buf.length, 0, data.length)
-  buf.length = newLenght
+  data.copy(buf.data, buf.length, 0, data.length);
+  buf.length = newLenght;
 }
+
+function CutMessage(buf: DynamicBuffer): null | Buffer {
+  const idx = buf.data.subarray(0, buf.length).indexOf("\n");
+  if (idx < 0) return null;
+  const msg = Buffer.from(buf.data.subarray(0, idx + 1));
+  bufPop(buf, idx + 1);
+
+  return msg;
+}
+
+function bufPop(buf: DynamicBuffer, len: number): void {
+  buf.data.copyWithin(0, len, buf.length);
+  buf.length -= len;
+}
+
 
 async function newConn(socket: net.Socket): Promise<void> {
   const connection = InitializeConnection(socket);
+  const buf: DynamicBuffer = { data: Buffer.alloc(0), length: 0 };
+
+  console.log("New connection from", socket.remoteAddress, socket.remotePort);
+
   while (true) {
-    const data = await ReadConnection(connection);
-    if (data.length === 0) {
-      console.log("end connection");
-      socket.destroy();
-      break;
+    const msg = CutMessage(buf);
+    if (!msg) {
+      const data = await ReadConnection(connection);
+      GrowBuffer(buf, data);
+
+      if (data.length === 0) {
+        console.log("Client closed connection");
+        socket.destroy();
+        return;
+      }
+      continue;
     }
-    console.log("data:", data.toString());
-    await WriteConnection(connection, data);
+
+    const text = msg.toString().trim();
+    if (text === "quit") {
+      console.log("Received quit → closing connection");
+      await WriteConnection(connection, Buffer.from("Bye.\n"));
+      socket.destroy();
+      return;
+    } else {
+      console.log("Received:", text);
+      const reply = Buffer.concat([Buffer.from("Echo: "), msg]);
+      await WriteConnection(connection, reply);
+    }
   }
 }
+
 
 const server = net.createServer({ pauseOnConnect: true }, newConn);
 server.on("error", (err: Error) => console.error("Server error:", err));
